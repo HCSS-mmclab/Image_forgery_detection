@@ -179,7 +179,7 @@ class HCSSNet(nn.Module):
         self.col_fc3 = nn.Linear(128,64)
 
         self.fc1 = nn.Linear(128,64)
-        self.fc2 = nn.Linear(64, 4)
+        self.fc2 = nn.Linear(64, 2)
 
     def forward(self, x):
         fft_row = torch.abs(fft.fft(x,dim=2))#(8,1,1024,1024) dim=(-2,-1)
