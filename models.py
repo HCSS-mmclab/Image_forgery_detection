@@ -170,10 +170,6 @@ class HCSSNet(nn.Module):
         self.conv2d_5 = nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2)
         self.conv2d_6 = nn.Conv2d(32, 32, kernel_size=5, stride=1, padding=2)
 
-        self.batch1 = nn.BatchNorm2d(16)
-        self.batch2 = nn.BatchNorm2d(32)
-        # self.batch1 = nn.BatchNorm2d(16)
-
         self.row_fc1 = nn.Linear(im_size*32, im_size)
         self.row_fc2 = nn.Linear(im_size, 128)
         self.row_fc3 = nn.Linear(128,64)
@@ -183,7 +179,7 @@ class HCSSNet(nn.Module):
         self.col_fc3 = nn.Linear(128,64)
 
         self.fc1 = nn.Linear(128,64)
-        self.fc2 = nn.Linear(64, 2)
+        self.fc2 = nn.Linear(64, 4)
 
     def forward(self, x):
         fft_row = torch.abs(fft.fft(x,dim=2))#(8,1,1024,1024) dim=(-2,-1)
@@ -196,22 +192,18 @@ class HCSSNet(nn.Module):
         # plt.plot(aa[1,0,:,500])
         # plt.show()
         fft_row = self.conv2d_1(fft_row)
-        fft_row = self.batch1(fft_row)
         fft_row = torch.relu(fft_row)
 
         fft_row = self.conv2d_2(fft_row)
-        fft_row = self.batch2(fft_row)
         fft_row = torch.relu(fft_row)
 
         fft_row = self.conv2d_3(fft_row)
 
         fft_col = torch.abs(fft.fft(x, dim=3))
         fft_col = self.conv2d_4(fft_col)
-        fft_col = self.batch1(fft_col)
         fft_col = torch.relu(fft_col)
 
         fft_col = self.conv2d_5(fft_col)
-        fft_col = self.batch2(fft_col)
         fft_col = torch.relu(fft_col)
 
         fft_col = self.conv2d_6(fft_col)
