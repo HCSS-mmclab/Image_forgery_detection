@@ -231,3 +231,80 @@ class HCSSNet(nn.Module):
         logits = torch.squeeze(logits)
 
         return logits
+
+
+
+class PeakEstimator(nn.Module):
+
+    def __init__(self, backbone_type, im_size, out_dim=2, pretrained = False):
+        super(PeakEstimator, self).__init__()
+        # self.lap = nn.Parameter(torch.zeros(size=[3, 3, 3, 3]), requires_grad=False)
+
+        self.conv2d_1 = nn.Conv2d(1,16,kernel_size=7,stride=1,padding=3)
+        self.conv2d_2 = nn.Conv2d(16,32,kernel_size=5,stride=1,padding=2)
+        self.conv2d_3 = nn.Conv2d(32,32,kernel_size=5,stride=1,padding=2)
+
+        self.row_fc1 = nn.Linear(im_size * 32, im_size)
+        self.row_fc2 = nn.Linear(im_size, 64)
+        # self.row_fc3 = nn.Linear(128, 64)
+
+        self.col_fc1 = nn.Linear(im_size * 32, im_size)
+        self.col_fc2 = nn.Linear(im_size, 64)
+        # self.col_fc3 = nn.Linear(128, 64)
+
+        self.fc1 = nn.Linear(128, 4)
+        # self.fc2 = nn.Linear(64, 4)
+
+    def forward(self, x):
+        x = self.conv2d_1(x)
+        x = torch.relu(x)
+        x = self.conv2d_2(x)
+        x = torch.relu(x)
+        x = self.conv2d_3(x)
+        x = torch.relu(x)
+
+        # fft_row = torch.abs(fft.fft(x,dim=2))#(8,1,1024,1024) dim=(-2,-1)
+
+        # fft_row = self.conv2d_1(fft_row)
+        # fft_row = torch.relu(fft_row)
+        # fft_row = self.conv2d_2(fft_row)
+        # fft_row = torch.relu(fft_row)
+        # fft_row = self.conv2d_3(fft_row)
+
+        # fft_col = torch.abs(fft.fft(x, dim=3))
+        # fft_col = self.conv2d_1(fft_col)
+        # fft_col = torch.relu(fft_col)
+        # fft_col = self.conv2d_2(fft_col)
+        # fft_col = torch.relu(fft_col)
+        # fft_col = self.conv2d_3(fft_col)
+
+        mean_fft_row = torch.squeeze(torch.mean(x, dim=2))
+        mean_fft_col = torch.squeeze(torch.mean(x, dim=3))
+        mean_fft_row = mean_fft_row.view(mean_fft_row.shape[0],-1)
+        mean_fft_col = mean_fft_col.view(mean_fft_col.shape[0],-1)
+        # plt.plot(mean_fft_col[0,:,:].detach().cpu().numpy())
+        # plt.show()
+
+        # 열과 행에서 각각 추출한 fft feature를 이용하여 판별
+        x_row = self.row_fc1(mean_fft_row)
+        x_row = torch.relu(x_row)
+        x_row = self.row_fc2(x_row)
+        x_row = torch.relu(x_row)
+        # x_row = self.row_fc3(x_row)
+
+        x_col = self.col_fc1(mean_fft_col)
+        x_col = torch.relu(x_col)
+        x_col = self.col_fc2(x_col)
+        x_col = torch.relu(x_col)
+        # x_col = self.col_fc3(x_col)
+
+        # parameter estimator
+        # 위에서 뽑은 특징으로 parameter를 추정하는 부분
+        # 알려진 optimal 공식을 적용해서 수정하는 방향으로 구상
+        x = torch.cat((x_row, x_col), dim=-1)
+        x = self.fc1(x)
+        # x = self.fc2(x)
+        #fc layer
+        logits = torch.squeeze(x)
+
+        return logits
