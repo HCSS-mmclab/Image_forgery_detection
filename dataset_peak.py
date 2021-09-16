@@ -66,7 +66,7 @@ class resamplingDataset(Dataset):
         self.im_center = image_size // 2
         self.image_shape = (image_size, image_size)
 
-        self.image_num = 10000
+        self.image_num = 20000
         self.matrix = []
         self.image_list = []
 
@@ -78,8 +78,8 @@ class resamplingDataset(Dataset):
     def __getitem__(self, index):
 
         while True:
-            rot_factor = randrange(0, 451, 5) * 0.1
-            scal_factor = randrange(110, 201, 5) * 0.01
+            rot_factor = randrange(0, 451, 1) * 0.1
+            scal_factor = randrange(110, 201, 1) * 0.01
             matrix = cv2.getRotationMatrix2D((self.im_center, self.im_center), rot_factor,scal_factor)
             matrix = [round(x,2) for x in [matrix[0,0], matrix[0,1], matrix[1,0], matrix[1,1]]]
 
