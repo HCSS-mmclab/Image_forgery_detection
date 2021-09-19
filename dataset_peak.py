@@ -22,8 +22,8 @@ class genSynthImage():
         # scaling 1.1~2.0까지 (0.05 간격)
 
         while True:
-            rot_factor = randrange(0, 451, 5) * 0.1
-            scal_factor = randrange(110, 201, 5) * 0.01
+            rot_factor = randrange(0, 451, 1) * 0.1
+            scal_factor = randrange(110, 201, 1) * 0.01
             matrix = cv2.getRotationMatrix2D((self.im_center, self.im_center), rot_factor,scal_factor)
             matrix = [round(x,2) for x in [matrix[0,0], matrix[0,1], matrix[1,0], matrix[1,1]]]
 
@@ -57,14 +57,77 @@ class genSynthImage():
 
         return peak_image, matrix
 
-
 class resamplingDataset(Dataset):
+    def __init__(self, csv, mode, image_size=256, noise_power=10, transform=None):
+        # self.csv = pd.concat([csv] * 10, ignore_index=True).reset_index(drop=True)  # image 복사
+        self.mode = mode  # train / valid
+        self.transform = transform
+        self.image_size = image_size
+        self.im_center = image_size // 2
+        self.image_shape = (image_size, image_size)
+
+        self.image_num = 20000
+        self.matrix = []
+        self.image_list = []
+
+
+
+    def __len__(self):
+        return self.image_num
+
+    def __getitem__(self, index):
+
+        while True:
+            rot_factor = randrange(0, 451, 1) * 0.1
+            scal_factor = randrange(110, 201, 1) * 0.01
+            matrix = cv2.getRotationMatrix2D((self.im_center, self.im_center), rot_factor,scal_factor)
+            matrix = [round(x,2) for x in [matrix[0,0], matrix[0,1], matrix[1,0], matrix[1,1]]]
+
+            # # shearing
+            # shear_factor = np.random.randint(low=-noise_power, high=noise_power, size=4) * 0.01
+            # matrix = [matrix_ori[i]+shear_factor[i] for i in range(4)]
+
+            # singular matrix 방지; ad != bc
+            if matrix[0]*matrix[3] != matrix[1]*matrix[2]:
+                break
+
+        # Matrix 형성 및 inverse 계산
+        A = np.array([[matrix[0], matrix[1]],[matrix[2], matrix[3]]])
+        A_T_inv = np.linalg.inv(A.T)
+
+        # y = x - round(x)
+        peak_image = np.zeros(self.image_shape)
+        M = np.array([[1, 0], [-1, 0], [0, 1], [0, -1]])
+
+        for m_i in range(M.shape[0]):
+            m = M[m_i, :]
+            A_T_inv_m = np.matmul(A_T_inv, m)
+
+            # y = x - round(x)
+            peak_normalized_loc = A_T_inv_m - np.round(A_T_inv_m)
+
+            peak_im_loc =  self.im_center*peak_normalized_loc + self.im_center
+
+            # 이미지 값 기록
+            peak_image[int(peak_im_loc[0]), int(peak_im_loc[1])] = 1
+
+        image = np.expand_dims(peak_image, axis=0)
+
+        # 학습용 데이터 리턴
+        data = torch.tensor(image).float()
+
+        # 변경 값 리턴하기
+        target_list = matrix
+
+        return data, torch.tensor(target_list).float()
+
+class resamplingDataset_org(Dataset):
     def __init__(self, csv, mode, image_size=1024, noise_power=10, transform=None):
         # self.csv = pd.concat([csv] * 10, ignore_index=True).reset_index(drop=True)  # image 복사
         self.mode = mode  # train / valid
         self.transform = transform
 
-        self.image_num = 10000
+        self.image_num = 20000
         self.matrix = []
         self.image_list = []
 
@@ -123,7 +186,8 @@ def get_dataframe_val(data_dir, data_folder, out_dim = 1):
 
     # data 읽어오기 (pd.read_csv / DataFrame으로 저장)
     data_folder = 'images/'
-    df_train = pd.read_csv(os.path.join(data_dir, data_folder, 'val.CSV'))
+    df_train = pd.read_csv(os.path.join(data_dir, data_folder, 'csv_val_set1.csv'))
+    df_train2 = pd.read_csv(os.path.join(data_dir, data_folder, 'csv_val_set2.csv'))
 
     # 비어있는 데이터 버리고 데이터 인덱스를 재지정함
     # df_train = df_train[df_train['인덱스 이름'] != -1].reset_index(drop=True)
@@ -131,7 +195,8 @@ def get_dataframe_val(data_dir, data_folder, out_dim = 1):
     # 이미지 이름을 경로로 변환하기 (pd.DataFrame / apply, map, applymap에 대해 공부)
     # df_train['image_name'] = df_train['image_name'] + '_' + df_train['patch'].astype(str)
     # df_train['image_name'] = df_train['image_name'].apply(lambda x: x+'.png')
-    df_train['filepath'] = df_train['img_name'].apply(lambda x: os.path.join(data_dir, f'{data_folder}val', x))  # f'{x}.jpg'
+    df_train['filepath'] = df_train['img_name'].apply(lambda x: os.path.join(data_dir, f'{data_folder}val_set1', x))  # f'{x}.jpg'
+    df_train2['filepath'] = df_train2['img_name'].apply(lambda x: os.path.join(data_dir, f'{data_folder}val_set2', x))  # f'{x}.jpg'
 
     # # 원본데이터=0, 외부데이터=1
     # df_train['is_ext'] = 0
@@ -164,7 +229,7 @@ def get_dataframe_val(data_dir, data_folder, out_dim = 1):
     # df_test = pd.read_csv(os.path.join(data_dir, data_folder, 'test.csv'))
     # df_test['filepath'] = df_test['image_name'].apply(lambda x: os.path.join(data_dir, f'{data_folder}test', x)) # f'{x}.jpg'
 
-    return df_train
+    return df_train, df_train2
 
 
 
@@ -227,4 +292,3 @@ def get_meta_data_stoneproject(df_train, df_test):
     '''
 
     return 0,0,0,0
-

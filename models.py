@@ -240,28 +240,34 @@ class PeakEstimator(nn.Module):
         super(PeakEstimator, self).__init__()
         # self.lap = nn.Parameter(torch.zeros(size=[3, 3, 3, 3]), requires_grad=False)
 
-        self.conv2d_1 = nn.Conv2d(1,16,kernel_size=7,stride=1,padding=3)
-        self.conv2d_2 = nn.Conv2d(16,32,kernel_size=5,stride=1,padding=2)
-        self.conv2d_3 = nn.Conv2d(32,32,kernel_size=5,stride=1,padding=2)
+        self.conv2d_1 = nn.Conv2d(1,64,kernel_size=7,stride=1,padding=3)
+        # self.conv2d_2 = nn.Conv2d(32,32,kernel_size=5,stride=1,padding=2)
+        # self.conv2d_3 = nn.Conv2d(32,32,kernel_size=5,stride=1,padding=2)
 
-        self.row_fc1 = nn.Linear(im_size * 32, im_size)
-        self.row_fc2 = nn.Linear(im_size, 64)
+        self.row_fc1 = nn.Linear(im_size * 64, im_size*32)
+        # self.row_fc1 = nn.Linear(im_size * 32, 64)
+        self.row_fc2 = nn.Linear(im_size*32, im_size * 16)
+        self.row_fc3 = nn.Linear(im_size * 16, im_size)
+        self.row_fc4 = nn.Linear(im_size, 64)
+        # self.row_fc2 = nn.Linear(64, 4)
         # self.row_fc3 = nn.Linear(128, 64)
 
-        self.col_fc1 = nn.Linear(im_size * 32, im_size)
-        self.col_fc2 = nn.Linear(im_size, 64)
+        self.col_fc1 = nn.Linear(im_size * 64, im_size*32)
+        self.col_fc2 = nn.Linear(im_size*32, im_size * 16)
+        self.col_fc3 = nn.Linear(im_size * 16, im_size)
+        self.col_fc4 = nn.Linear(im_size, 64)
         # self.col_fc3 = nn.Linear(128, 64)
 
-        self.fc1 = nn.Linear(128, 4)
-        # self.fc2 = nn.Linear(64, 4)
+        self.fc1 = nn.Linear(128, 64)
+        self.fc2 = nn.Linear(64, 4)
 
     def forward(self, x):
         x = self.conv2d_1(x)
         x = torch.relu(x)
-        x = self.conv2d_2(x)
-        x = torch.relu(x)
-        x = self.conv2d_3(x)
-        x = torch.relu(x)
+        # x = self.conv2d_2(x)
+        # x = torch.relu(x)
+        # x = self.conv2d_3(x)
+        # x = torch.relu(x)
 
         # fft_row = torch.abs(fft.fft(x,dim=2))#(8,1,1024,1024) dim=(-2,-1)
 
@@ -290,20 +296,25 @@ class PeakEstimator(nn.Module):
         x_row = torch.relu(x_row)
         x_row = self.row_fc2(x_row)
         x_row = torch.relu(x_row)
-        # x_row = self.row_fc3(x_row)
+        x_row = self.row_fc3(x_row)
+        x_row = torch.relu(x_row)
+        x_row = self.row_fc4(x_row)
 
         x_col = self.col_fc1(mean_fft_col)
         x_col = torch.relu(x_col)
         x_col = self.col_fc2(x_col)
         x_col = torch.relu(x_col)
-        # x_col = self.col_fc3(x_col)
+        x_col = self.col_fc3(x_col)
+        x_col = torch.relu(x_col)
+        x_col = self.col_fc4(x_col)
+
 
         # parameter estimator
         # 위에서 뽑은 특징으로 parameter를 추정하는 부분
         # 알려진 optimal 공식을 적용해서 수정하는 방향으로 구상
         x = torch.cat((x_row, x_col), dim=-1)
         x = self.fc1(x)
-        # x = self.fc2(x)
+        x = self.fc2(x)
         #fc layer
         logits = torch.squeeze(x)
 

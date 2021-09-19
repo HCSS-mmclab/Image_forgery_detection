@@ -134,7 +134,9 @@ def train_epoch(model, loader, optimizer):
         logits = model(data)
 
         loss = criterion(logits, target)
+
         loss.backward()
+        # loss = torch.log10(loss)
         # # 그라디언트가 너무 크면 값을 0.5로 잘라준다 (max_grad_norm=0.5)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
 
@@ -175,14 +177,14 @@ def val_epoch(model, loader):
             logits = model(data)
 
             loss = criterion(logits, target)
-            loss = torch.log10(loss)
+            # loss = torch.log10(loss)
             val_loss.append(loss.detach().cpu().numpy())
 
     val_loss = np.mean(val_loss)
 
     return val_loss
 
-def run(df_val, transforms_train, transforms_val):
+def run(df_val1, df_val2, transforms_train, transforms_val):
     # fold, df, transforms_train, transforms_val
     '''
     학습 진행 메인 함수
@@ -192,7 +194,8 @@ def run(df_val, transforms_train, transforms_val):
     '''
 
     train_loss_list = []
-    valid_loss_list = []
+    valid_loss_set1_list = []
+    valid_loss_set2_list = []
     accuracy_list = []
     # if args.DEBUG:
     #     args.n_epochs = 5
@@ -213,8 +216,10 @@ def run(df_val, transforms_train, transforms_val):
     #         df_valid = df_valid.sample(len(df_valid)-1)
 
     # 데이터셋 읽어오기
-    dataset_valid = resamplingDataset_rasie(df_val, 'valid', args.image_size, transform=transforms_val)
-    valid_loader = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batch_size, num_workers=args.num_workers)
+    dataset_valid_set1 = resamplingDataset_rasie(df_val1, 'valid', args.image_size, transform=transforms_val)
+    dataset_valid_set2 = resamplingDataset_rasie(df_val2, 'valid', args.image_size, transform=transforms_val)
+    valid_loader_set1 = torch.utils.data.DataLoader(dataset_valid_set1, batch_size=args.batch_size, num_workers=args.num_workers)
+    valid_loader_set2 = torch.utils.data.DataLoader(dataset_valid_set2, batch_size=args.batch_size, num_workers=args.num_workers)
 
     model_file = os.path.join(args.model_dir, f'{args.kernel_type}_best_fold.pth')
     model_file3 = os.path.join(args.model_dir, f'{args.kernel_type}_final_fold.pth')
@@ -262,34 +267,69 @@ def run(df_val, transforms_train, transforms_val):
 
         if args.k_fold == 1 :
             # skip validation
-            val_loss, acc, auc, auc_no_ext = [999.0, 0.0, 0.0, 0.0]
+            val_loss_set1, acc, auc, auc_no_ext = [999.0, 0.0, 0.0, 0.0]
             if epoch + 5 > args.n_epochs :
                 model_file4 = os.path.join(args.model_dir, f'{args.kernel_type}_e{args.n_epochs-epoch}.pth')
                 torch.save(model.state_dict(), model_file4)
+            val_loss_set2, acc, auc, auc_no_ext = [999.0, 0.0, 0.0, 0.0]
+            if epoch + 5 > args.n_epochs:
+                model_file4 = os.path.join(args.model_dir, f'{args.kernel_type}_e{args.n_epochs - epoch}.pth')
+                torch.save(model.state_dict(), model_file4)
         if epoch > 0:
-            val_loss = val_epoch(model, valid_loader)   #, val_r_loss, val_s_loss, acc_score
-
+            val_loss_set1 = val_epoch(model, valid_loader_set1) #, val_r_loss, val_s_loss, acc_score
+            val_loss_set2 = val_epoch(model, valid_loader_set2)
 
         else:
-            val_loss = 1
+            val_loss_set1 = 1
+            val_loss_set2 = 1
 
-        content = time.ctime() + ' ' + f'Epoch {epoch}, lr: {optimizer.param_groups[0]["lr"]:.7f}, train loss: {train_loss:.5f}, valid loss: {(val_loss):.5f}'
+        content = time.ctime() + ' ' + f'Epoch {epoch}, lr: {optimizer.param_groups[0]["lr"]:.7f}, train loss: {train_loss:.5f}, valid set1 loss: {(val_loss_set1):.5f}, valid set2 loss: {(val_loss_set2):.5f}'
         print(content)
 
         train_loss_list.append(train_loss)
-        valid_loss_list.append(val_loss)
+        valid_loss_set1_list.append(val_loss_set1)
+        valid_loss_set2_list.append(val_loss_set2)
 
         # train, val loss, acc
         if epoch == args.n_epochs:  #or epoch == args.n_epochs//2:
+            plt.figure(figsize=(10,40))
+            plt.subplot(4,1,1)
+            train_min = min(train_loss_list)
+            train_x = np.argmin(train_loss_list)
+            valid_min_set1 = min(valid_loss_set1_list)
+            valid_x_set1 = np.argmin(valid_loss_set1_list)
+            valid_min_set2 = min(valid_loss_set2_list)
+            valid_x_set2 = np.argmin(valid_loss_set2_list)
             plt.plot(train_loss_list)
-            plt.plot(valid_loss_list)
-            plt.legend(['train_loss', 'val_s_loss'])
+            plt.text(train_x,train_min, round(train_min,4))
+            plt.plot(valid_loss_set1_list)
+            plt.text(valid_x_set1, valid_min_set1, round(valid_min_set1,4))
+            plt.plot(valid_loss_set2_list)
+            plt.text(valid_x_set2, valid_min_set2, round(valid_min_set2, 4))
+            plt.legend(['train_loss', 'val_s_loss_set1','val_s_loss_set2'])
             plt.ylabel('loss')
             plt.title(f'{args.kernel_type}')
             plt.grid()
+
+            plt.subplot(4,1,2)
+            plt.plot(train_loss_list)
+            plt.text(train_x, train_min, round(train_min, 4))
+            plt.legend(['train_loss'])
+            plt.grid()
+
+            plt.subplot(4, 1, 3)
+            plt.plot(valid_loss_set1_list)
+            plt.text(valid_x_set1, valid_min_set1, round(valid_min_set1, 4))
+            plt.legend(['val_s_loss_set1'])
+            plt.grid()
+
+            plt.subplot(4, 1, 4)
+            plt.plot(valid_loss_set2_list)
+            plt.text(valid_x_set2, valid_min_set2, round(valid_min_set2, 4))
+            plt.legend(['val_s_loss_set2'])
+            plt.grid()
             plt.savefig(f'./results_peak/{args.kernel_type}.jpg')
             plt.show()
-
 
         with open(os.path.join(args.log_dir, f'log_{args.kernel_type}.txt'), 'a') as appender:
             appender.write(content + '\n')
@@ -298,10 +338,14 @@ def run(df_val, transforms_train, transforms_val):
         if epoch == 2:
             scheduler_warmup.step() # bug workaround
 
-        if val_loss < val_loss_max:
-            print('val_loss_max ({:.6f} --> {:.6f}). Saving model ...'.format(val_loss_max, val_loss))
+        if val_loss_set1 < val_loss_max:
+            print('val_loss_max ({:.6f} --> {:.6f}). Saving model ...'.format(val_loss_max, val_loss_set1))
             torch.save(model.state_dict(), model_file)
-            val_loss_max = val_loss
+            val_loss_max = val_loss_set1
+        if val_loss_set2 < val_loss_max:
+            print('val_loss_max ({:.6f} --> {:.6f}). Saving model ...'.format(val_loss_max, val_loss_set2))
+            torch.save(model.state_dict(), model_file)
+            val_loss_max = val_loss_set2
 
     # if args.k_fold ==1 :
     #     torch.save(model.state_dict(), model_file)
@@ -311,12 +355,12 @@ def run(df_val, transforms_train, transforms_val):
 
 def main():
     # 데이터셋 읽어오기
-    df_val = get_dataframe_val(args.data_dir, args.data_folder, args.out_dim)
+    df_val1,df_val2 = get_dataframe_val(args.data_dir, args.data_folder, args.out_dim)
 
     # 모델 트랜스폼 가져오기
     transforms_train, transforms_val = get_transforms(args.image_size)
 
-    run(df_val, transforms_train, transforms_val)
+    run(df_val1,df_val2, transforms_train, transforms_val)
 
 
 if __name__ == '__main__':
