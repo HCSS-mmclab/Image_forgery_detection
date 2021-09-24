@@ -1,6 +1,7 @@
 import os
 import time
 import argparse
+import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
@@ -13,7 +14,7 @@ from matplotlib import pyplot as plt
 from utils.util import *
 # import apex
 # from apex import amp
-from dataset_peak import get_transforms, resamplingDataset, resamplingDataset_rasie, get_dataframe_val
+from dataset_peak import get_transforms, resamplingDataset_orgimg, resamplingDataset_rasie, get_dataframe_val
 from models import JUNet, MISLnet, HCSSNet, PeakEstimator
 
 Precautions_msg = '(주의사항) ---- \n'
@@ -155,7 +156,7 @@ def train_epoch(model, loader, optimizer):
         bar.set_description('loss: %.5f, smooth_loss: %.5f' % (loss_np, smooth_loss))
 
     train_loss = np.mean(train_loss)
-    return train_loss
+    return train_loss, logits.detach().cpu().numpy(), target.detach().cpu().numpy()
 
 
 def val_epoch(model, loader):
@@ -182,7 +183,8 @@ def val_epoch(model, loader):
 
     val_loss = np.mean(val_loss)
 
-    return val_loss
+    return val_loss, logits.detach().cpu().numpy(), target.detach().cpu().numpy()
+
 
 def run(df_val1, df_val2, transforms_train, transforms_val):
     # fold, df, transforms_train, transforms_val
@@ -256,14 +258,33 @@ def run(df_val1, df_val2, transforms_train, transforms_val):
     scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, args.n_epochs - 1)
     scheduler_warmup = GradualWarmupSchedulerV2(optimizer, multiplier=10, total_epoch=1, after_scheduler=scheduler_cosine)
 
+
+    d_t = pd.DataFrame(columns=['a','b','c','d','a*','b*','c*','d*'])
+    d_v1 = pd.DataFrame(columns=['a', 'b', 'c', 'd', 'a*', 'b*', 'c*', 'd*'])
+    d_v2 = pd.DataFrame(columns=['a', 'b', 'c', 'd', 'a*', 'b*', 'c*', 'd*'])
+
     for epoch in range(1, args.n_epochs + 1):
 
-        dataset_train = resamplingDataset('train', args.image_size, transform=transforms_train, noise_power=10)
+        dataset_train = resamplingDataset_orgimg(mode='train', image_size = args.image_size, transform=transforms_train)
         train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size,
                                                    sampler=RandomSampler(dataset_train), num_workers=args.num_workers)
 
         print(time.ctime(), f'Epoch {epoch}')
-        train_loss = train_epoch(model, train_loader, optimizer)
+        train_loss, logits, target = train_epoch(model, train_loader, optimizer)
+        ############# visualization ################
+        for i in range(logits.shape[0]):
+            visual_t = {
+                 'a': target[i,0],
+                 'b': target[i,1],
+                 'c': target[i,2],
+                 'd': target[i,3],
+                 'a*': logits[i,0],
+                 'b*': logits[i,1],
+                 'c*': logits[i,2],
+                 'd*': logits[i,3],
+                 }
+            d_t = d_t.append(visual_t, ignore_index=True)
+
 
         if args.k_fold == 1 :
             # skip validation
@@ -276,8 +297,36 @@ def run(df_val1, df_val2, transforms_train, transforms_val):
                 model_file4 = os.path.join(args.model_dir, f'{args.kernel_type}_e{args.n_epochs - epoch}.pth')
                 torch.save(model.state_dict(), model_file4)
         if epoch > 0:
-            val_loss_set1 = val_epoch(model, valid_loader_set1) #, val_r_loss, val_s_loss, acc_score
-            val_loss_set2 = val_epoch(model, valid_loader_set2)
+            val_loss_set1, logits1, target1 = val_epoch(model, valid_loader_set1) #, val_r_loss, val_s_loss, acc_score
+            val_loss_set2, logits2, target2 = val_epoch(model, valid_loader_set2)
+
+            ############# visualization ################
+            for i in range(logits1.shape[0]):
+                visual_v1 = {
+                    'a': target1[i, 0],
+                    'b': target1[i, 1],
+                    'c': target1[i, 2],
+                    'd': target1[i, 3],
+                    'a*': logits1[i, 0],
+                    'b*': logits1[i, 1],
+                    'c*': logits1[i, 2],
+                    'd*': logits1[i, 3],
+                }
+                d_v1 = d_v1.append(visual_v1, ignore_index=True)
+
+            for i in range(logits2.shape[0]):
+                visual_v2 = {
+                    'a': target2[i, 0],
+                    'b': target2[i, 1],
+                    'c': target2[i, 2],
+                    'd': target2[i, 3],
+                    'a*': logits2[i, 0],
+                    'b*': logits2[i, 1],
+                    'c*': logits2[i, 2],
+                    'd*': logits2[i, 3],
+                }
+                d_v2 = d_v2.append(visual_v2, ignore_index=True)
+
 
         else:
             val_loss_set1 = 1
@@ -289,6 +338,11 @@ def run(df_val1, df_val2, transforms_train, transforms_val):
         train_loss_list.append(train_loss)
         valid_loss_set1_list.append(val_loss_set1)
         valid_loss_set2_list.append(val_loss_set2)
+
+        d_t.to_csv(f'./visual/{args.kernel_type}_train.csv')
+        d_v1.to_csv(f'./visual/{args.kernel_type}_val1.csv')
+        d_v2.to_csv(f'./visual/{args.kernel_type}_val2.csv')
+
 
         # train, val loss, acc
         if epoch == args.n_epochs:  #or epoch == args.n_epochs//2:
