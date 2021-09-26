@@ -3,7 +3,8 @@ import torch.fft as fft
 import torch
 import cv2
 import matplotlib.pyplot as plt
-
+import torchvision.models as models
+from torchsummary import summary
 class MISLnet(nn.Module):
 
     def __init__(self, backbone_type, im_size=1024, out_dim=2, pretrained = False):
@@ -156,30 +157,37 @@ class JUNet(nn.Module):
 
 
 
-class HCSSNet(nn.Module):
+class HCSSNet_1d(nn.Module):
 
     def __init__(self, backbone_type, im_size, out_dim=2, pretrained = False):
-        super(HCSSNet, self).__init__()
+        super(HCSSNet_1d, self).__init__()
         # self.lap = nn.Parameter(torch.zeros(size=[3, 3, 3, 3]), requires_grad=False)
-
+        #1d_c1.7_3.7_3.5_3.5 - 256_128_64_32 - 64_32
         self.conv2d_1 = nn.Conv2d(1,16,kernel_size=7,stride=1,padding=3)
-        self.conv2d_2 = nn.Conv2d(16,32,kernel_size=5,stride=1,padding=2)
-        self.conv2d_3 = nn.Conv2d(32,32,kernel_size=5,stride=1,padding=2)
+        self.conv2d_2 = nn.Conv2d(16,32,kernel_size=7,stride=1,padding=3)
+        self.conv2d_3 = nn.Conv2d(32,64,kernel_size=5,stride=1,padding=2)
+        # self.conv2d_4 = nn.Conv2d(32,32, kernel_size=3, stride=1, padding=1)
 
-        self.conv2d_4 = nn.Conv2d(1, 16, kernel_size=7, stride=1, padding=3)
-        self.conv2d_5 = nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2)
-        self.conv2d_6 = nn.Conv2d(32, 32, kernel_size=5, stride=1, padding=2)
+        self.conv2d_5 = nn.Conv2d(1, 16, kernel_size=7, stride=1, padding=3)
+        self.conv2d_6 = nn.Conv2d(16, 32, kernel_size=7, stride=1, padding=3)
+        self.conv2d_7 = nn.Conv2d(32, 64, kernel_size=5, stride=1, padding=2)
+        # self.conv2d_8 = nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1)
 
-        self.row_fc1 = nn.Linear(im_size*32, im_size)
+        # self.maxpool = nn.MaxPool2d(2, stride=2)
+
+        self.row_fc1 = nn.Linear(im_size*64, im_size)
         self.row_fc2 = nn.Linear(im_size, 128)
-        self.row_fc3 = nn.Linear(128,64)
+        self.row_fc3 = nn.Linear(128, 64)
+        # self.row_fc4 = nn.Linear(64, 64)
 
-        self.col_fc1 = nn.Linear(im_size*32, im_size)
+        self.col_fc1 = nn.Linear(im_size*64, im_size)
         self.col_fc2 = nn.Linear(im_size, 128)
         self.col_fc3 = nn.Linear(128,64)
+        # self.col_fc4 = nn.Linear(64, 64)
 
         self.fc1 = nn.Linear(128,64)
-        self.fc2 = nn.Linear(64, 2)
+        self.fc2 = nn.Linear(64, 32)
+        self.fc3 = nn.Linear(32,4)
 
     def forward(self, x):
         fft_row = torch.abs(fft.fft(x,dim=2))#(8,1,1024,1024) dim=(-2,-1)
@@ -193,31 +201,138 @@ class HCSSNet(nn.Module):
         # plt.show()
         fft_row = self.conv2d_1(fft_row)
         fft_row = torch.relu(fft_row)
-
         fft_row = self.conv2d_2(fft_row)
         fft_row = torch.relu(fft_row)
-
         fft_row = self.conv2d_3(fft_row)
+        fft_row = torch.relu(fft_row)
+        # fft_row = self.conv2d_4(fft_row)
+        # fft_row = torch.relu(fft_row)
 
         fft_col = torch.abs(fft.fft(x, dim=3))
-        fft_col = self.conv2d_4(fft_col)
-        fft_col = torch.relu(fft_col)
 
         fft_col = self.conv2d_5(fft_col)
         fft_col = torch.relu(fft_col)
-
         fft_col = self.conv2d_6(fft_col)
+        fft_col = torch.relu(fft_col)
+        fft_col = self.conv2d_7(fft_col)
+        fft_col = torch.relu(fft_col)
+        # fft_col = self.conv2d_8(fft_col)
+        # fft_col = torch.relu(fft_col)
 
+        mean_fft_row = torch.squeeze(torch.mean(fft_row, dim=3))
 
-        mean_fft_row = torch.squeeze(torch.mean(fft_row, dim=2))
-        mean_fft_col = torch.squeeze(torch.mean(fft_col, dim=3))
+        mean_fft_col = torch.squeeze(torch.mean(fft_col, dim=2))
+
         mean_fft_row = mean_fft_row.view(mean_fft_row.shape[0],-1)
         mean_fft_col = mean_fft_col.view(mean_fft_col.shape[0],-1)
+
         # plt.plot(mean_fft_col[0,:,:].detach().cpu().numpy())
         # plt.show()
+        # print(one_fc.shape)
+        # print(two_fc.shape)
 
         # 열과 행에서 각각 추출한 fft feature를 이용하여 판별
-        # print(mean_fft_row)
+        x_row = self.row_fc1(mean_fft_row)
+        x_row = torch.relu(x_row)
+        x_row = self.row_fc2(x_row)
+        x_row = torch.relu(x_row)
+        x_row = self.row_fc3(x_row)
+        x_row = torch.relu(x_row)
+        # x_row = self.row_fc4(x_row)
+
+        x_col = self.col_fc1(mean_fft_col)
+        x_col = torch.relu(x_col)
+        x_col = self.col_fc2(x_col)
+        x_col = torch.relu(x_col)
+        x_col = self.col_fc3(x_col)
+        x_col = torch.relu(x_col)
+        # x_col = self.col_fc4(x_col)
+
+        # parameter estimator
+        # 위에서 뽑은 특징으로 parameter를 추정하는 부분
+        # 알려진 optimal 공식을 적용해서 수정하는 방향으로 구상
+        logits = torch.cat((x_row, x_col), dim=-1)
+        logits = self.fc1(logits)
+        logits = torch.relu(logits)
+        logits = self.fc2(logits)
+        logits = torch.relu(logits)
+        logits = self.fc3(logits)
+        #fc layer
+        logits = torch.squeeze(logits)
+
+        return logits
+
+class HCSSNet_2d(nn.Module):
+
+    def __init__(self, backbone_type, im_size, out_dim=2, pretrained = False):
+        super(HCSSNet_2d, self).__init__()
+        # self.lap = nn.Parameter(torch.zeros(size=[3, 3, 3, 3]), requires_grad=False)
+
+        self.one_conv2d_1 = nn.Conv2d(1,16,kernel_size=7,stride=2,padding=3)
+        self.one_conv2d_2 = nn.Conv2d(16,32,kernel_size=7,stride=2,padding=3)
+        self.one_conv2d_3 = nn.Conv2d(32,64,kernel_size=5,stride=1,padding=2)
+
+        self.two_conv2d_1 = nn.Conv2d(1, 16, kernel_size=7, stride=1, padding=3)
+        self.two_conv2d_2 = nn.Conv2d(16, 32, kernel_size=7, stride=1, padding=3)
+        self.two_conv2d_3 = nn.Conv2d(32, 64, kernel_size=5, stride=1, padding=2)
+
+        self.maxpool = nn.MaxPool2d(2, stride=2)
+
+        self.row_fc1 = nn.Linear(im_size*32, im_size)
+        self.row_fc2 = nn.Linear(im_size, 128)
+        self.row_fc3 = nn.Linear(128,64)
+
+        self.col_fc1 = nn.Linear(im_size*32, im_size)
+        self.col_fc2 = nn.Linear(im_size, 128)
+        self.col_fc3 = nn.Linear(128,64)
+
+        self.fc1 = nn.Linear(128,64)
+        self.fc2 = nn.Linear(64, 4)
+
+    def forward(self, x):
+        fft2 = torch.abs(fft.fft2(x,dim=2))#(8,1,1024,1024) dim=(-2,-1)
+
+        # aa = fft_row.detach().cpu().numpy()
+        # aa[:,:,:20,:20]=0
+        # aa[:, :, 1000:, 1000:] = 0
+        # plt.plot(aa[1,0,500,:])
+        # plt.show()
+        # plt.plot(aa[1,0,:,500])
+        # plt.show()
+        fft_row = self.one_conv2d_1(fft2)
+        fft_row = torch.relu(fft_row)
+        fft_row = self.one_conv2d_2(fft_row)
+        fft_row = torch.relu(fft_row)
+        fft_row = self.one_conv2d_3(fft_row)
+        fft_row = torch.relu(fft_row)
+        # print(fft_row.shape)
+
+        fft_col = self.two_conv2d_1(fft2)
+        fft_col = self.maxpool(fft_col)
+        fft_col = torch.relu(fft_col)
+        fft_col = self.two_conv2d_2(fft_col)
+        fft_col = self.maxpool(fft_col)
+        fft_col = torch.relu(fft_col)
+        fft_col = self.two_conv2d_3(fft_col)
+        fft_col = torch.relu(fft_col)
+        # print(fft_row.shape)
+        conv_out = torch.cat((fft_row,fft_col),1)
+        one_mean_row = torch.squeeze(torch.mean(conv_out, dim=2))
+        one_mean_col = torch.squeeze(torch.mean(conv_out, dim=3))
+        # two_mean_row = torch.squeeze(torch.mean(fft_col, dim=2))
+        # two_mean_col = torch.squeeze(torch.mean(fft_col, dim=3))
+
+        mean_fft_row = one_mean_row.view(one_mean_row.shape[0],-1)
+        mean_fft_col = one_mean_col.view(one_mean_col.shape[0],-1)
+        # one_fc = torch.cat((one_mean_row.view(one_mean_row.shape[0], -1), two_mean_row.view(two_mean_row.shape[0], -1)),dim=-1)
+        # two_fc = torch.cat((one_mean_col.view(one_mean_col.shape[0], -1), two_mean_col.view(two_mean_col.shape[0], -1)),dim=-1)
+        # plt.plot(mean_fft_col[0,:,:].detach().cpu().numpy())
+        # plt.show()
+        # print(one_fc.shape)
+        # print(two_fc.shape)
+        # print(mean_fft_row.shape)
+
+        # 열과 행에서 각각 추출한 fft feature를 이용하여 판별
         x_row = self.row_fc1(mean_fft_row)
         x_row = torch.relu(x_row)
         x_row = self.row_fc2(x_row)
@@ -235,8 +350,106 @@ class HCSSNet(nn.Module):
         # 알려진 optimal 공식을 적용해서 수정하는 방향으로 구상
         logits = torch.cat((x_row, x_col), dim=-1)
         logits = self.fc1(logits)
+        logits = torch.relu(logits)
         logits = self.fc2(logits)
         #fc layer
         logits = torch.squeeze(logits)
 
         return logits
+
+
+
+class PeakEstimator(nn.Module):
+
+    def __init__(self, backbone_type, im_size, out_dim=2, pretrained = False):
+        super(PeakEstimator, self).__init__()
+        # self.lap = nn.Parameter(torch.zeros(size=[3, 3, 3, 3]), requires_grad=False)
+
+        self.conv2d_1 = nn.Conv2d(1,8,kernel_size=5,stride=1,padding=2)
+        # self.conv2d_2 = nn.Conv2d(8,16,kernel_size=5,stride=1,padding=2)
+
+        self.row_fc1 = nn.Linear(im_size * 8, im_size)
+        self.row_fc2 = nn.Linear(im_size, 128)        # self.row_fc3 = nn.Linear(64, 64)
+
+        self.col_fc1 = nn.Linear(im_size * 8, im_size)
+        self.col_fc2 = nn.Linear(im_size, 128)
+        # self.col_fc3 = nn.Linear(64, 64)
+
+        self.fc1 = nn.Linear(256, 64)
+        self.fc2 = nn.Linear(64, 4)
+
+    def forward(self, x):
+        x = self.conv2d_1(x)
+        x = torch.relu(x)
+        # x = self.conv2d_2(x)
+        # x = torch.relu(x)
+
+        # fft_row = torch.abs(fft.fft(x,dim=2))#(8,1,1024,1024) dim=(-2,-1)
+
+        # fft_row = self.conv2d_1(fft_row)
+        # fft_row = torch.relu(fft_row)
+        # fft_row = self.conv2d_2(fft_row)
+        # fft_row = torch.relu(fft_row)
+        # fft_row = self.conv2d_3(fft_row)
+
+        # fft_col = torch.abs(fft.fft(x, dim=3))
+        # fft_col = self.conv2d_1(fft_col)
+        # fft_col = torch.relu(fft_col)
+        # fft_col = self.conv2d_2(fft_col)
+        # fft_col = torch.relu(fft_col)
+        # fft_col = self.conv2d_3(fft_col)
+
+        mean_fft_row = torch.squeeze(torch.mean(x, dim=2))
+        mean_fft_col = torch.squeeze(torch.mean(x, dim=3))
+        mean_fft_row = mean_fft_row.view(mean_fft_row.shape[0],-1)
+        mean_fft_col = mean_fft_col.view(mean_fft_col.shape[0],-1)
+        # plt.plot(mean_fft_col[0,:,:].detach().cpu().numpy())
+        # plt.show()
+
+        # 열과 행에서 각각 추출한 fft feature를 이용하여 판별
+        x_row = self.row_fc1(mean_fft_row)
+        x_row = torch.relu(x_row)
+        x_row = self.row_fc2(x_row)
+        x_row = torch.relu(x_row)
+        # x_row = self.row_fc3(x_row)
+        # x_row = torch.relu(x_row)
+
+        x_col = self.col_fc1(mean_fft_col)
+        x_col = torch.relu(x_col)
+        x_col = self.col_fc2(x_col)
+        x_col = torch.relu(x_col)
+        # x_col = self.col_fc3(x_col)
+        # x_col = torch.relu(x_col)
+
+        # parameter estimator
+        # 위에서 뽑은 특징으로 parameter를 추정하는 부분
+        # 알려진 optimal 공식을 적용해서 수정하는 방향으로 구상
+        x = torch.cat((x_row, x_col), dim=-1)
+        x = self.fc1(x)
+        x = torch.relu(x)
+        x = self.fc2(x)
+        #fc layer
+        logits = torch.squeeze(x)
+
+        return logits
+
+class Resnet50(nn.Module):
+    def __init__(self, backbone_type, im_size, out_dim=4, pretrained = False):
+        super(Resnet50,self).__init__()
+        self.model = models.resnet50(pretrained=True)
+        self.model.fc = nn.Linear(2048, 4)
+                                # nn.ReLU(),
+                                # nn.Linear(64,4))
+    def forward(self,x):
+        logits = self.model(x)
+        return logits
+
+
+# resnet50 = models.resnet50()
+# for param in resnet50.parameters():
+#     param.requires_grad = False
+# features = list(resnet50.fc.children())[:-1]
+# features.extend([nn.Linear(2048, 64),
+#                  nn.ReLU(),
+#                  nn.Linear(64,4)])
+# resnet50.fc = nn.Sequential(*features) # classifier 변경
