@@ -5,6 +5,7 @@ import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
 import torch
+# import timm
 from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch.optim as optim
@@ -16,9 +17,10 @@ import pandas as pd
 # import apex
 # from apex import amp
 # from dataset_peak import get_transforms, resamplingDataset, resamplingDataset_rasie, get_dataframe_val
-from dataset import get_dataframe, get_transforms, resamplingDataset_raise, resamplingDataset_modified, get_dataframe_raise, resamplingDataset_orgimg
-from models import JUNet, MISLnet, HCSSNet_1d, HCSSNet_2d, PeakEstimator, Resnet50
-
+from dataset import get_dataframe, get_transforms, resamplingDataset_raise, get_dataframe_raise, resamplingDataset_orgimg #, resamplingDataset_modified
+# from models import JUNet, MISLnet, HCSSNet_1d, HCSSNet_2d, PeakEstimator, Resnet50#, DistilledVisionTransformer #, Stream3
+from trans_model import Deit
+from pytorchtools import EarlyStopping
 Precautions_msg = '(주의사항) ---- \n'
 
 
@@ -114,13 +116,13 @@ def parse_args():
 
     parser.add_argument('--use-ext', action='store_true')
     # 원본데이터에 추가로 외부 데이터를 사용할지 여부
+    parser.add_argument('--patience', type=int, default=5)
 
 
     parser.add_argument('--batch-size', type=int, default=32) # 배치 사이즈
     parser.add_argument('--num-workers', type=int, default=4) # 데이터 읽어오는 스레드 개수
-    parser.add_argument('--init-lr', type=float, default=1e-5) # 초기 러닝 레이트. pretrained를 쓰면 매우 작은값
+    parser.add_argument('--init-lr', type=float, default=2e-5) # 초기 러닝 레이트. pretrained를 쓰면 매우 작은값
     parser.add_argument('--n-epochs', type=int, default=100) # epoch 수
-
     args, _ = parser.parse_known_args()
     return args
 
@@ -200,6 +202,7 @@ def run(df, df_val1, df_val2, transforms_train, transforms_val):
     :param df: DataFrame 학습용 전체 데이터 목록
     :param transforms_train, transforms_val: 데이터셋 transform 함수
     '''
+    early_stopping = EarlyStopping(patience=args.patience, verbose=True)
 
     train_loss_list = []
     valid_loss_set1_list = []
@@ -234,17 +237,17 @@ def run(df, df_val1, df_val2, transforms_train, transforms_val):
     if os.path.isfile(model_file):
         model = ModelClass(
             args.enet_type,
-            out_dim=args.out_dim,
-            pretrained=True,
-            im_size = args.image_size
+            # out_dim=args.out_dim,
+            # pretrained=True,
+            # im_size = args.image_size
         )
         model.load_state_dict(torch.load(model_file))
     else:
         model = ModelClass(
-            args.enet_type,
-            out_dim=args.out_dim,
-            pretrained=False,
-            im_size=args.image_size
+            args.enet_type#,
+            # out_dim=args.out_dim,
+            # pretrained=True,
+            # im_size=args.image_size
         )
 
     # GPU 여러개로 병렬처리
@@ -272,31 +275,17 @@ def run(df, df_val1, df_val2, transforms_train, transforms_val):
 
         print(time.ctime(), f'Epoch {epoch}')
         train_loss, logits1, target1 = train_epoch(model, train_loader, optimizer)
-        if epoch == args.n_epochs-1:
-            for i in range(logits1.shape[0]):
-                visual_v1 = {
-                    'a': target1[i, 0],
-                    'b': target1[i, 1],
-                    'c': target1[i, 2],
-                    'd': target1[i, 3],
-                    'a*': logits1[i, 0],
-                    'b*': logits1[i, 1],
-                    'c*': logits1[i, 2],
-                    'd*': logits1[i, 3],
-                }
-                d_v1 = d_v1.append(visual_v1, ignore_index=True)
-            d_v1.to_csv(f'./visual/{args.kernel_type}_train.csv')
             # df = pd.read_csv(f'./visual/{args.kernel_type}_train.csv')
-        if args.k_fold == 1 :
-            # skip validation
-            val_loss_set1, acc, auc, auc_no_ext = [999.0, 0.0, 0.0, 0.0]
-            if epoch + 5 > args.n_epochs :
-                model_file4 = os.path.join(args.model_dir, f'{args.kernel_type}_e{args.n_epochs-epoch}.pth')
-                torch.save(model.state_dict(), model_file4)
-            val_loss_set2, acc, auc, auc_no_ext = [999.0, 0.0, 0.0, 0.0]
-            if epoch + 5 > args.n_epochs:
-                model_file4 = os.path.join(args.model_dir, f'{args.kernel_type}_e{args.n_epochs - epoch}.pth')
-                torch.save(model.state_dict(), model_file4)
+        # if args.k_fold == 1 :
+        #     # skip validation
+        #     val_loss_set1, acc, auc, auc_no_ext = [999.0, 0.0, 0.0, 0.0]
+        #     if epoch + 5 > args.n_epochs :
+        #         model_file4 = os.path.join(args.model_dir, f'{args.kernel_type}_e{args.n_epochs-epoch}.pth')
+        #         torch.save(model.state_dict(), model_file4)
+        #     val_loss_set2, acc, auc, auc_no_ext = [999.0, 0.0, 0.0, 0.0]
+        #     if epoch + 5 > args.n_epochs:
+        #         model_file4 = os.path.join(args.model_dir, f'{args.kernel_type}_e{args.n_epochs - epoch}.pth')
+        #         torch.save(model.state_dict(), model_file4)
         if epoch > 0:
             val_loss_set1 = val_epoch(model, valid_loader_set1) #, val_r_loss, val_s_loss, acc_score
             val_loss_set2 = val_epoch(model, valid_loader_set2)
@@ -307,13 +296,10 @@ def run(df, df_val1, df_val2, transforms_train, transforms_val):
 
         content = time.ctime() + ' ' + f'Epoch {epoch}, lr: {optimizer.param_groups[0]["lr"]:.7f}, train loss: {train_loss:.5f}, valid set1 loss: {(val_loss_set1):.5f}, valid set2 loss: {(val_loss_set2):.5f}'
         print(content)
+        early_stopping(val_loss_set1, model)
 
-        train_loss_list.append(train_loss)
-        valid_loss_set1_list.append(val_loss_set1)
-        valid_loss_set2_list.append(val_loss_set2)
-
-        # train, val loss, acc
-        if epoch == args.n_epochs:  #or epoch == args.n_epochs//2:
+        if early_stopping.early_stop:
+            print("Early stopping")
             plt.figure(figsize=(10,40))
             plt.subplot(4,1,1)
             train_min = min(train_loss_list)
@@ -352,6 +338,13 @@ def run(df, df_val1, df_val2, transforms_train, transforms_val):
             plt.grid()
             plt.savefig(f'./SR_results/{args.kernel_type}.jpg')
             plt.show()
+            break
+        train_loss_list.append(train_loss)
+        valid_loss_set1_list.append(val_loss_set1)
+        valid_loss_set2_list.append(val_loss_set2)
+
+        # train, val loss, acc
+
 
         with open(os.path.join(args.log_dir, f'log_{args.kernel_type}.txt'), 'a') as appender:
             appender.write(content + '\n')
@@ -364,6 +357,22 @@ def run(df, df_val1, df_val2, transforms_train, transforms_val):
             print('val_loss_max ({:.6f} --> {:.6f}). Saving model ...'.format(val_loss_max, val_loss_set1))
             torch.save(model.state_dict(), model_file)
             val_loss_max = val_loss_set1
+            if epoch > 60:
+                d_t = pd.DataFrame(columns=['a', 'b', 'c', 'd', 'a*', 'b*', 'c*', 'd*'])
+                for i in range(len(logits1)):
+                    visual_v1 = {
+                        'a': target1[i][0],
+                        'b': target1[i][1],
+                        'c': target1[i][2],
+                        'd': target1[i][3],
+                        'a*': logits1[i][0],
+                        'b*': logits1[i][1],
+                        'c*': logits1[i][2],
+                        'd*': logits1[i][3],
+                    }
+                    d_t = d_t.append(visual_v1, ignore_index=True)
+            if epoch == args.n_epochs:
+                d_t.to_csv(f'./visual/{args.kernel_type}_train.csv')
         if val_loss_set2 < val_loss_max:
             print('val_loss_max ({:.6f} --> {:.6f}). Saving model ...'.format(val_loss_max, val_loss_set2))
             torch.save(model.state_dict(), model_file)
@@ -410,18 +419,22 @@ if __name__ == '__main__':
     ####################################
     ####################################
     # 네트워크 타입 설정
-    if 'JUNet' in args.enet_type:
-        ModelClass = JUNet
-    elif 'MISLnet' in args.enet_type:
-        ModelClass = MISLnet
-    elif 'HCSSNet_1d' in args.enet_type:
-        ModelClass = HCSSNet_1d
-    elif 'HCSSNet_2d' in args.enet_type:
-        ModelClass = HCSSNet_2d
-    elif 'PeakEstimator' in args.enet_type:
-        ModelClass = PeakEstimator
-    elif 'Resnet50' in args.enet_type:
-        ModelClass = Resnet50
+    # if 'JUNet' in args.enet_type:
+    #     ModelClass = JUNet
+    # elif 'MISLnet' in args.enet_type:
+    #     ModelClass = MISLnet
+    # elif 'HCSSNet_1d' in args.enet_type:
+    #     ModelClass = HCSSNet_1d
+    # elif 'HCSSNet_2d' in args.enet_type:
+    #     ModelClass = HCSSNet_2d
+    # elif 'PeakEstimator' in args.enet_type:
+    #     ModelClass = PeakEstimator
+    # elif 'Resnet50' in args.enet_type:
+    #     ModelClass = Resnet50
+    if 'DistilledVisionTransformer' in args.enet_type:
+        ModelClass = DistilledVisionTransformer
+    elif 'Deit' in args.enet_type:
+        ModelClass = Deit
     else:
         raise NotImplementedError()
 
