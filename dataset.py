@@ -1,3 +1,4 @@
+#-*_ coding:utf-8 -*-
 import os
 import cv2
 import numpy as np
@@ -10,10 +11,11 @@ from torch.utils.data import Dataset
 def get_dataframe(k_fold, data_dir, data_folder, out_dim = 1):
 
     # data 읽어오기 (pd.read_csv / DataFrame으로 저장)
-    df_train = pd.read_csv(os.path.join(data_dir, data_folder, 'org_patch.csv'))
+    data_folder = 'images/'
+    df_train = pd.read_csv(os.path.join(data_dir, data_folder, 'train.csv'))
 
     # 이미지 이름을 경로로 변환하기 (pd.DataFrame / apply, map, applymap에 대해 공부)
-    df_train['filepath'] = df_train['image_name'].apply(lambda x: os.path.join(data_dir, f'{data_folder}org_patch', x))  # f'{x}.jpg'
+    df_train['filepath'] = df_train['image_name'].apply(lambda x: os.path.join(data_dir, f'{data_folder}train', x))  # f'{x}.jpg'
     # df_train['org_img_name'] = df_train['image_name'].apply(lambda x: (x.split('_')[0]))
 
     # 원본데이터=0, 외부데이터=1
@@ -30,52 +32,54 @@ def get_dataframe(k_fold, data_dir, data_folder, out_dim = 1):
 
     # 데이터 인덱스 : fold 번호. (fold)번 분할뭉치로 간다
     # train.py input arg에서 k-fold를 수정해줘야함 (default:5)
-    print(f'Dataset: {k_fold}-fold cross-validation')
-    img_id2fold = {i: i % k_fold for i in range(img_ids)}
-    df_train['fold'] = df_train['img_id'].map(img_id2fold)
+    # print(f'Dataset: {k_fold}-fold cross-validation')
+    # img_id2fold = {i: i % k_fold for i in range(img_ids)}
+    # df_train['fold'] = df_train['img_id'].map(img_id2fold)
 
 
     # test data (학습이랑 똑같게 함)
-    df_test = pd.read_csv(os.path.join(data_dir, data_folder, 'test.csv'))
-    df_test['filepath'] = df_test['image_name'].apply(lambda x: os.path.join(data_dir, f'{data_folder}test', x)) # f'{x}.jpg'
+    # df_test = pd.read_csv(os.path.join(data_dir, data_folder, 'test.csv'))
+    # df_test['filepath'] = df_test['image_name'].apply(lambda x: os.path.join(data_dir, f'{data_folder}test', x)) # f'{x}.jpg'
 
-    return df_train, df_test
+    return df_train#, df_test
 
 
-
-class resamplingDataset_modified(Dataset):
-    def __init__(self, csv, mode, image_size=256, transform=None):
-        self.csv = csv
-        self.mode = mode # train / valid
-        self.transform = transform
-        self.image_size = image_size
-
-    def __len__(self):
-        return self.csv.shape[0]
-
-    def __getitem__(self, index):
-        image = cv2.imread(self.csv.iloc[index].filepath)
-        image = cv2.Laplacian(image, cv2.CV_8U, -1)
-        target_list = [self.csv.iloc[index].p1, self.csv.iloc[index].p2, self.csv.iloc[index].p4, self.csv.iloc[index].p5]  # scaling factor, scaling시에만 적용된다
-
-        # albumentation 적용
-        res = self.transform(image=image)
-        image = res['image'].astype(np.float32)
-
-        # 흑백 이미지 변환 후 차원 변경 [1, 1024, 1024]
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        image = np.expand_dims(image, axis=0)
-        # image = np.transpose(image, (2, 0, 1))
-
-        # 학습용 데이터 리턴
-        data = torch.tensor(image).float()
-
-        return data, torch.tensor(target_list).float()
+# class resamplingDataset_modified(Dataset):
+#     def __init__(self, csv, mode, image_size=224, transform=None):
+#         self.csv = csv
+#         self.mode = mode # train / valid
+#         self.transform = transform
+#         self.image_size = image_size
+#
+#     def __len__(self):
+#         return self.csv.shape[0]
+#
+#     def __getitem__(self, index):
+#         image = cv2.imread(self.csv.iloc[index].filepath)
+#         # image = cv2.Laplacian(image, cv2.CV_8U, -1)
+#         target_list = [self.csv.iloc[index].p1, self.csv.iloc[index].p2, self.csv.iloc[index].p4, self.csv.iloc[index].p5]  # scaling factor, scaling시에만 적용된다
+#
+#         # albumentation 적용
+#         res = self.transform(image=image)
+#         image = res['image'].astype(np.float32)
+#
+#         # 흑백 이미지 변환 후 차원 변경 [1, 1024, 1024]
+#         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+#         image = np.expand_dims(image, axis=0)
+#         # image = np.transpose(image, (2, 0, 1))
+#
+#         # 학습용 데이터 리턴
+#         data = torch.tensor(image).float()
+#
+#         return data, torch.tensor(target_list).float()
 
 class resamplingDataset_orgimg(Dataset):
     def __init__(self, csv, mode, image_size=256, transform=None):
-        # self.csv = csv
+        # # self.csv = csv
+        # data_folder = './data/images'
         self.csv = pd.concat([csv], ignore_index=True)
+        # self.csv = pd.read_csv(os.path.join(data_folder, 'train.csv'))
+        # self.csv['filepath'] = self.csv['file_name'].apply(lambda x: os.path.join(data_folder,train))
         self.mode = mode  # train / valid
         self.transform = transform
         self.image_size = image_size
@@ -87,15 +91,15 @@ class resamplingDataset_orgimg(Dataset):
         return self.csv.shape[0]
 
     def __getitem__(self, index):
+
         image = cv2.imread(self.csv.iloc[index].filepath)
+        # image = cv2.imread(self.csv.iloc[index].filepath, cv2.COLOR_BGR2GRAY)
         h, w, _ = image.shape
         h_half, w_half = int(h / 2), int(w / 2)
         ################################################
-        rot_factor = float(np.random.uniform(low=1, high=451, size=(1,)))*0.1
-        scal_factor = float(np.random.uniform(low=110, high=201, size=(1,)))*0.01
-        rot_factor = round(rot_factor,2)
-        scal_factor = round(scal_factor, 3)
-        matrix = cv2.getRotationMatrix2D((h_half, w_half), rot_factor, scal_factor)
+        rot_factor = int(np.random.uniform(low=1, high=451, size=(1,)))*0.1
+        scal_factor = int(np.random.uniform(low=110, high=201, size=(1,)))*0.01
+        matrix = cv2.getRotationMatrix2D((h_half, w_half), float(rot_factor), float(scal_factor))
         image = cv2.warpAffine(image, matrix, (w, h), cv2.INTER_LINEAR)
         ################################################
         # center crop
@@ -106,15 +110,18 @@ class resamplingDataset_orgimg(Dataset):
 
         target_list = [matrix[0][0],matrix[0][1],matrix[1][0],matrix[1][1]]  # scaling factor, scaling시에만 적용된다
 
-        # image = cv2.Laplacian(image, cv2.CV_8U, -1)
         res = self.transform(image=image)
         image = res['image'].astype(np.float32)
-
+        #########################################
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         # 흑백 이미지 변환 후 차원 변경 [1, 1024, 1024]
-        # image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        # image = np.expand_dims(image, axis=0)
-        image = np.transpose(image, (2, 0, 1))
-        # image = np.expand_dims(image, axis=0)
+        image = cv2.Laplacian(image, cv2.CV_32F, -1)
+        image = np.expand_dims(image, axis=0)
+        #########################################
+
+
+        # image = np.transpose(image, (2, 0, 1))#no_lap
+
         data = torch.tensor(image).float()
 
         return data, torch.tensor(target_list).float()#, class_target
@@ -132,8 +139,8 @@ def get_dataframe_raise(data_dir, data_folder, out_dim = 1):
 
     # 이미지 이름을 경로로 변환하기 (pd.DataFrame / apply, map, applymap에 대해 공부)
     # df_train['image_name'] = df_train['image_name'] + '_' + df_train['patch'].astype(str)
-    df_train['image_name'] = df_train['image_name'].apply(lambda x: x+'.png')
-    df_train['filepath'] = df_train['image_name'].apply(lambda x: os.path.join(data_dir, f'{data_folder}RAISE_random_val', x))  # f'{x}.jpg'
+    # df_train['image_name'] = df_train['image_name'].apply(lambda x: x+'.png')
+    df_train['filepath'] = df_train['image_name'].apply(lambda x: os.path.join(data_dir, f'{data_folder}RAISE_random_val', f'{x}.png'))  # f'{x}.jpg'
 
     # df_train2['image_name'] = df_train2['image_name'] + '_' + df_train2['patch'].astype(str)
     df_train2['image_name'] = df_train2['image_name'].apply(lambda x: x + '.png')
@@ -190,18 +197,21 @@ class resamplingDataset_raise(Dataset):
 
     def __getitem__(self, index):
 
-        image = cv2.imread(self.csv.iloc[index].filepath)
+        image = cv2.imread(self.csv.iloc[index].filepath)#, cv2.COLOR_BGR2GRAY)
         target_list = [self.csv.iloc[index].p1, self.csv.iloc[index].p2, self.csv.iloc[index].p4, self.csv.iloc[index].p5]   #scaling factor, scaling시에만 적용된다
 
         # albumentation 적용
-        # image = cv2.Laplacian(image, cv2.CV_8U,-1)
         res = self.transform(image=image)
         image = res['image'].astype(np.float32)
-
+        #########################################
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         # 흑백 이미지 변환 후 차원 변경 [1, 1024, 1024]
-        # image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        # image = np.expand_dims(image, axis=0)
-        image = np.transpose(image, (2, 0, 1))
+        image = cv2.Laplacian(image, cv2.CV_32F, -1)
+        image = np.expand_dims(image, axis=0)
+        #########################################
+
+
+        # image = np.transpose(image, (2, 0, 1))#no_lap
 
         # 학습용 데이터 리턴
         data = torch.tensor(image).float()
