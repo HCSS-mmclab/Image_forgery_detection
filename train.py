@@ -18,8 +18,8 @@ import pandas as pd
 # from apex import amp
 # from dataset_peak import get_transforms, resamplingDataset, resamplingDataset_rasie, get_dataframe_val
 from dataset import get_dataframe, get_transforms, resamplingDataset_raise, get_dataframe_raise, resamplingDataset_orgimg #, resamplingDataset_modified
-# from models import JUNet, MISLnet, HCSSNet_1d, HCSSNet_2d, PeakEstimator, Resnet50#, DistilledVisionTransformer #, Stream3
-from trans_model import Deit
+from models import JUNet, MISLnet, HCSSNet_1d, HCSSNet_2d, PeakEstimator, Resnet50, Test#, DistilledVisionTransformer #, Stream3
+# from trans_model import Deit
 from pytorchtools import EarlyStopping
 Precautions_msg = '(주의사항) ---- \n'
 
@@ -116,12 +116,12 @@ def parse_args():
 
     parser.add_argument('--use-ext', action='store_true')
     # 원본데이터에 추가로 외부 데이터를 사용할지 여부
-    parser.add_argument('--patience', type=int, default=5)
+    parser.add_argument('--patience', type=int, default=15)
 
 
     parser.add_argument('--batch-size', type=int, default=32) # 배치 사이즈
     parser.add_argument('--num-workers', type=int, default=4) # 데이터 읽어오는 스레드 개수
-    parser.add_argument('--init-lr', type=float, default=2e-5) # 초기 러닝 레이트. pretrained를 쓰면 매우 작은값
+    parser.add_argument('--init-lr', type=float, default=4e-5) # 초기 러닝 레이트. pretrained를 쓰면 매우 작은값
     parser.add_argument('--n-epochs', type=int, default=100) # epoch 수
     args, _ = parser.parse_known_args()
     return args
@@ -202,6 +202,7 @@ def run(df, df_val1, df_val2, transforms_train, transforms_val):
     :param df: DataFrame 학습용 전체 데이터 목록
     :param transforms_train, transforms_val: 데이터셋 transform 함수
     '''
+    # fold=0
     early_stopping = EarlyStopping(patience=args.patience, verbose=True)
 
     train_loss_list = []
@@ -225,29 +226,23 @@ def run(df, df_val1, df_val2, transforms_train, transforms_val):
     #     if len(df_valid) % args.batch_size == 1:
     #         df_valid = df_valid.sample(len(df_valid)-1)
 
-    # 데이터셋 읽어오기
-    dataset_valid_set1 = resamplingDataset_raise(df_val1, 'valid', args.image_size, transform=transforms_val)
-    dataset_valid_set2 = resamplingDataset_raise(df_val2, 'valid', args.image_size, transform=transforms_val)
-    valid_loader_set1 = torch.utils.data.DataLoader(dataset_valid_set1, batch_size=args.batch_size, num_workers=args.num_workers)
-    valid_loader_set2 = torch.utils.data.DataLoader(dataset_valid_set2, batch_size=args.batch_size,
-                                               num_workers=args.num_workers)
 
     model_file = os.path.join(args.model_dir, f'{args.kernel_type}_best_fold.pth')
     model_file3 = os.path.join(args.model_dir, f'{args.kernel_type}_final_fold.pth')
     if os.path.isfile(model_file):
         model = ModelClass(
             args.enet_type,
-            # out_dim=args.out_dim,
-            # pretrained=True,
-            # im_size = args.image_size
+            out_dim=args.out_dim,
+            pretrained=True,
+            im_size = args.image_size
         )
         model.load_state_dict(torch.load(model_file))
     else:
         model = ModelClass(
-            args.enet_type#,
-            # out_dim=args.out_dim,
-            # pretrained=True,
-            # im_size=args.image_size
+            args.enet_type,
+            out_dim=args.out_dim,
+            pretrained=True,
+            im_size=args.image_size
         )
 
     # GPU 여러개로 병렬처리
@@ -267,11 +262,21 @@ def run(df, df_val1, df_val2, transforms_train, transforms_val):
     scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, args.n_epochs - 1)
     scheduler_warmup = GradualWarmupSchedulerV2(optimizer, multiplier=10, total_epoch=1, after_scheduler=scheduler_cosine)
     # df_train = df[df['fold'] != fold]
+
+    # 데이터셋 읽어오기
+    dataset_valid_set1 = resamplingDataset_raise(df_val1, 'valid', args.image_size, transform=transforms_val)
+    dataset_valid_set2 = resamplingDataset_raise(df_val2, 'valid', args.image_size, transform=transforms_val)
+    valid_loader_set1 = torch.utils.data.DataLoader(dataset_valid_set1, batch_size=args.batch_size,
+                                                    num_workers=args.num_workers)
+    valid_loader_set2 = torch.utils.data.DataLoader(dataset_valid_set2, batch_size=args.batch_size,
+                                                    num_workers=args.num_workers)
+
+
     for epoch in range(1, args.n_epochs + 1):
 
-        dataset_train = resamplingDataset_orgimg(df,'train', args.image_size, transform=transforms_train)
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size,
-                                                   sampler=RandomSampler(dataset_train), num_workers=args.num_workers)
+        dataset_train = resamplingDataset_orgimg(df, 'train', args.image_size, transform=transforms_train)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size, num_workers=args.num_workers)
+        #,sampler=RandomSampler(dataset_train)
 
         print(time.ctime(), f'Epoch {epoch}')
         train_loss, logits1, target1 = train_epoch(model, train_loader, optimizer)
@@ -296,7 +301,8 @@ def run(df, df_val1, df_val2, transforms_train, transforms_val):
 
         content = time.ctime() + ' ' + f'Epoch {epoch}, lr: {optimizer.param_groups[0]["lr"]:.7f}, train loss: {train_loss:.5f}, valid set1 loss: {(val_loss_set1):.5f}, valid set2 loss: {(val_loss_set2):.5f}'
         print(content)
-        early_stopping(val_loss_set1, model)
+        if(epoch >= 100):
+            early_stopping(val_loss_set1, model)
 
         if early_stopping.early_stop:
             print("Early stopping")
@@ -386,7 +392,8 @@ def run(df, df_val1, df_val2, transforms_train, transforms_val):
 
 def main():
     # 데이터셋 읽어오기
-    df_train, df_test = get_dataframe(args.k_fold, args.data_dir, args.data_folder, args.out_dim)
+    df_train = get_dataframe(args.k_fold, args.data_dir, args.data_folder, args.out_dim)
+    #, df_test
     df_val1,df_val2 = get_dataframe_raise(args.data_dir, args.data_folder, args.out_dim)
 
     # 모델 트랜스폼 가져오기
@@ -419,22 +426,24 @@ if __name__ == '__main__':
     ####################################
     ####################################
     # 네트워크 타입 설정
-    # if 'JUNet' in args.enet_type:
-    #     ModelClass = JUNet
-    # elif 'MISLnet' in args.enet_type:
-    #     ModelClass = MISLnet
-    # elif 'HCSSNet_1d' in args.enet_type:
-    #     ModelClass = HCSSNet_1d
-    # elif 'HCSSNet_2d' in args.enet_type:
-    #     ModelClass = HCSSNet_2d
-    # elif 'PeakEstimator' in args.enet_type:
-    #     ModelClass = PeakEstimator
-    # elif 'Resnet50' in args.enet_type:
-    #     ModelClass = Resnet50
-    if 'DistilledVisionTransformer' in args.enet_type:
-        ModelClass = DistilledVisionTransformer
-    elif 'Deit' in args.enet_type:
-        ModelClass = Deit
+    if 'JUNet' in args.enet_type:
+        ModelClass = JUNet
+    elif 'MISLnet' in args.enet_type:
+        ModelClass = MISLnet
+    elif 'HCSSNet_1d' in args.enet_type:
+        ModelClass = HCSSNet_1d
+    elif 'HCSSNet_2d' in args.enet_type:
+        ModelClass = HCSSNet_2d
+    elif 'PeakEstimator' in args.enet_type:
+        ModelClass = PeakEstimator
+    elif 'Resnet50' in args.enet_type:
+        ModelClass = Resnet50
+    elif 'Test' in args.enet_type:
+        ModelClass = Test
+    # if 'DistilledVisionTransformer' in args.enet_type:
+    #     ModelClass = DistilledVisionTransformer
+    # elif 'Deit' in args.enet_type:
+    #     ModelClass = Deit
     else:
         raise NotImplementedError()
 
